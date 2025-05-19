@@ -8,7 +8,7 @@ import os
 import time
 import numpy as np
 import copy
-
+import re
 from models import *
 from utils import *
 from utils import const, utils
@@ -48,8 +48,8 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
 
 def parse_global_args(parser: argparse.ArgumentParser):
-    parser.add_argument('--gpu', type=str, default='0,1')
-    parser.add_argument('--device', type=str, default='cuda:0,1')
+    parser.add_argument('--gpu', type=str, default='0,1,2,3')
+    parser.add_argument('--device', type=str, default='cuda:0,1,2,3')
     parser.add_argument('--random_seed', type=int, default=20230601)
     parser.add_argument('--time', type=str, default='none')
     parser.add_argument('--train', type=int, default=1)
@@ -289,31 +289,32 @@ for epoch in range(1, args.epochs + 1):
     
     
     for batch_idx, batch in enumerate(tqdm(train_loader)):
-        # batch = batch.to(model.device)
-        if epoch % 1 == 0:
-            test_results,_ = runner.evaluate_diff(model, "test", diffusion, transformer,args.steps,args.sampling_noise)
-            val_results,_ = runner.evaluate_diff(model, "val", diffusion, transformer,args.steps,args.sampling_noise)
-            if val_results["rec"] > best_recall: # recall@20 as selection
-                best_recall, best_epoch = val_results["rec"], epoch
-                best_results = val_results
-                best_test_results = test_results
-                save_path = os.path.join(args.save_path, args.data)
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                torch.save(transformer, '{}{}_{}lr1_{}wd1_{}wd2_bs{}_cate{}_in{}_out{}_lam{}_dims{}_emb{}_{}_steps{}_scale{}_min{}_max{}_sample{}_reweight{}_{}.pth' \
-                    .format(save_path, args.dataset, args.lr1, args.wd1, args.wd2, args.batch_size, args.n_cate, \
-                    args.in_dims, args.out_dims, args.lamda, args.mlp_dims, args.emb_size, args.mean_type, args.steps, \
-                    args.noise_scale, args.noise_min, args.noise_max, args.sampling_steps, args.reweight, args.log_name))
+        # if epoch % 1 == 0:
+        #     test_results,_ = runner.evaluate_diff(model, "test", diffusion, transformer,args.steps,args.sampling_noise)
+        #     val_results,_ = runner.evaluate_diff(model, "val", diffusion, transformer,args.steps,args.sampling_noise)
+        #     if val_results["rec"] > best_recall: # recall@20 as selection
+        #         best_recall, best_epoch = val_results["rec"], epoch
+        #         best_results = val_results
+        #         best_test_results = test_results
+        #         save_path = os.path.join(args.save_path, args.data)
+        #         if not os.path.exists(save_path):
+        #             os.makedirs(save_path)
+        #         torch.save(transformer, '{}{}_{}lr1_{}wd1_{}wd2_bs{}_cate{}_in{}_out{}_lam{}_dims{}_emb{}_{}_steps{}_scale{}_min{}_max{}_sample{}_reweight{}_{}.pth' \
+        #             .format(save_path, args.dataset, args.lr1, args.wd1, args.wd2, args.batch_size, args.n_cate, \
+        #             args.in_dims, args.out_dims, args.lamda, args.mlp_dims, args.emb_size, args.mean_type, args.steps, \
+        #             args.noise_scale, args.noise_min, args.noise_max, args.sampling_steps, args.reweight, args.log_name))
 
-            print("Runing Epoch {:03d} ".format(epoch) + 'train loss {:.4f}'.format(total_loss) + " costs " + time.strftime(
-                                "%H: %M: %S", time.gmtime(time.time()-start_time)))
-            print('---'*18)
+        #     print("Runing Epoch {:03d} ".format(epoch) + 'train loss {:.4f}'.format(total_loss) + " costs " + time.strftime(
+        #                         "%H: %M: %S", time.gmtime(time.time()-start_time)))
+        #     print('---'*18)
         batch_count += 1
         optimizer.zero_grad()
         rec_fusion, src_fusion,query_emb = runner.get_batch_emb(model,batch)
         eq = query_emb
-        vs = src_fusion.view(query_emb.size(0), query_emb.size(1), -1)
-        vr = rec_fusion.view(query_emb.size(0), query_emb.size(1), -1)
+        vs = src_fusion
+        vr = rec_fusion
+        # vs = src_fusion.view(query_emb.size(0), query_emb.size(1), -1)
+        # vr = rec_fusion.view(query_emb.size(0), query_emb.size(1), -1)
         # rec_fusion = rec_fusion.view(query_emb.size(0), query_emb.size(0), -1)
         # query_emb = query_emb.unsqueeze(1).expand(-1, src_fusion.size(1), -1)
         # print(type(query_emb),type(rec_fusion),type(src_fusion))
@@ -326,18 +327,8 @@ for epoch in range(1, args.epochs + 1):
         terms = diffusion.training_losses(transformer, x_start=eq, v=vs, reweight=args.reweight)
         elbo = terms["loss"].mean()  # loss from diffusion
         batch_latent_recon = terms["pred_xstart"]
-
-        
-        # if args.vae_anneal_steps > 0:
-        #     anneal = min(args.vae_anneal_cap, 1. * update_count_vae / args.vae_anneal_steps)
-        # else:
-        #     anneal = args.vae_anneal_cap
         
         loss = elbo
-        # if args.reweight:
-        #     loss = lamda * elbo + vae_loss
-        # else:
-        #     loss = elbo + lamda * vae_loss
         
         update_count_vae += 1
 
@@ -347,20 +338,24 @@ for epoch in range(1, args.epochs + 1):
 
     update_count += 1
     
-    if epoch % 1 == 0:
+    if epoch % 5 == 0:
         test_results,_ = runner.evaluate_diff(model, "test", diffusion, transformer,args.steps,args.sampling_noise)
-        val_results,_ = runner.evaluate_diff(model, "val", diffusion, transformer,args.steps,args.sampling_noise)
-        if val_results["rec"] > best_recall: # recall@20 as selection
-            best_recall, best_epoch = val_results["rec"], epoch
-            best_results = val_results
-            best_test_results = test_results
+        # val_results,_ = runner.evaluate_diff(model, "val", diffusion, transformer,args.steps,args.sampling_noise)
+#         Traceback (most recent call last):
+#   File "/home/liuxiangxi/WJY/zhaorongchen/baseline/OurModel/pretrain.py", line 344, in <module>
+#     if val_results["rec"] > best_recall: # recall@20 as selection
+# TypeError: '>' not supported between instances of 'str' and 'int'
+        match = re.search(r'HR@20:(\d+\.\d+)', test_results["rec"])
+        hr20 = float(match.group(1))
+        print(test_results["rec"])
+        if hr20 > best_recall: # recall@20 as selection
+            best_recall, best_epoch = hr20, epoch
+            best_results = test_results
             save_path = os.path.join(args.save_path, args.data)
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
-            torch.save(transformer, '{}{}_{}lr1_{}wd1_{}wd2_bs{}_cate{}_in{}_out{}_lam{}_dims{}_emb{}_{}_steps{}_scale{}_min{}_max{}_sample{}_reweight{}_{}.pth' \
-                .format(save_path, args.dataset, args.lr1, args.wd1, args.wd2, args.batch_size, args.n_cate, \
-                args.in_dims, args.out_dims, args.lamda, args.mlp_dims, args.emb_size, args.mean_type, args.steps, \
-                args.noise_scale, args.noise_min, args.noise_max, args.sampling_steps, args.reweight, args.log_name))
+            torch.save(transformer, '{}{}_QueryGen.pth' \
+                .format(save_path, args.data))
 
     print("Runing Epoch {:03d} ".format(epoch) + 'train loss {:.4f}'.format(total_loss) + " costs " + time.strftime(
                         "%H: %M: %S", time.gmtime(time.time()-start_time)))
@@ -368,7 +363,7 @@ for epoch in range(1, args.epochs + 1):
 
 print('==='*18)
 print("End. Best Epoch {:03d} ".format(best_epoch))
-print(best_results,best_test_results) 
+print(best_results) 
 print("End time: ", time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))
 
 

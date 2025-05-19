@@ -130,9 +130,13 @@ class BaseModel(nn.Module):
 
     def predict(self, inputs,query_gen=None):
         if inputs['search']:
-            return self.src_predict(inputs,query_gen)
+            return self.src_predict(inputs)
         else:
-            return self.rec_predict(inputs,query_gen)
+            if query_gen is not None:
+                return self.rec_predict(inputs,query_gen)
+            else:
+                return self.rec_predict(inputs)
+            
 
     def rec_loss(self, inputs):
         raise NotImplementedError

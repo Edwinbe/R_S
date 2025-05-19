@@ -48,11 +48,11 @@ class BaseRunner(object):
 
         parser.add_argument('--batch_size',
                             type=int,
-                            default=1024,
+                            default=20480,
                             help='Batch size during training.')
         parser.add_argument('--eval_batch_size',
                             type=int,
-                            default=512,
+                            default=20480,
                             help='Batch size during testing.')
         parser.add_argument(
             '--num_workers',
@@ -212,8 +212,10 @@ class BaseRunner(object):
 
         start = time.time()
         for step, batch in enumerate(test_loader):
-
-            prediction = model.predict(utils.batch_to_gpu(batch, model.device),utils.batch_to_gpu(query_gen,model.device)) #==>inputs
+            if query_gen is None:
+                prediction = model.predict(utils.batch_to_gpu(batch, model.device)) #==>inputs
+            else:
+                prediction = model.predict(utils.batch_to_gpu(batch, model.device),utils.batch_to_gpu(query_gen,model.device))
             predictions.extend(prediction.cpu().data.numpy())
 
         logging.info("model evaluate time used:{}s".format(time.time() -
@@ -255,11 +257,11 @@ class SarRunner(BaseRunner):
                                                    shuffle=True)
         self.rec_val_loader = self.getDataLoader(
             self.valdata['rec'],
-            batch_size=5,
+            batch_size=256,
             shuffle=False)
         self.rec_test_loader = self.getDataLoader(
             self.testdata['rec'],
-            batch_size=5,
+            batch_size=256,
             shuffle=False)
 
         src_train_batch_size = len(self.traindata['src']) // (

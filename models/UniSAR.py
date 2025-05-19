@@ -249,15 +249,10 @@ class UniSAR(BaseModel):
         rec_fusion = self.rec_his_attn_pooling(rec_fusion_decoded, items_emb,
                                                rec_his_mask)
         src_fusion = self.src_his_attn_pooling(src_fusion_decoded, items_emb,
-                                               src_his_mask)
-        #(batch_size*item_len,1, 64)
-        #(batch_size,item_len, 64)
-
-        
-            
+                                               src_his_mask)      
         user_feats = [rec_fusion, src_fusion, user_emb]
         if embedding_get == 1:
-            return user_feats, q_i_align_used, his_cl_used
+            return vs_decoded, vr_decoded
         # torch.save(rec_fusion, f'/home/liuxiangxi/WJY/zhaorongchen/baseline/OurModel/data/embedding/{domain}/rec_fusion/{self.cnt}.pt')
         # torch.save(src_fusion, f'/home/liuxiangxi/WJY/zhaorongchen/baseline/OurModel/data/embedding/{domain}/src_fusion/{self.cnt}.pt')
         # torch.save(q_i_align_used[0], f'/home/liuxiangxi/WJY/zhaorongchen/baseline/OurModel/data/embedding/{domain}/query_emb/{self.cnt}.pt')
@@ -311,32 +306,35 @@ class UniSAR(BaseModel):
         batch_size = items_emb.size(0)
         # print(batch_size)
         # 前向传播
-        user_feats, q_i_align_used, his_cl_used = self.forward(user,
-                                                            all_his,
-                                                            all_his_type,
-                                                            items_emb,
-                                                            domain='rec')
+        vs_decoded,vr_decoded = self.forward(user,
+                                            all_his,
+                                            all_his_type,
+                                            items_emb,
+                                            domain='rec',
+                                            embedding_get=1)
         # print(user_feats[0].shape)
         # print(user_feats[1].shape)
-        batch_size = user_feats[0].size(0)// 5
-        rec_fusion = user_feats[0].view(batch_size, 5, -1)
-        src_fusion = user_feats[1].view(batch_size, 5, -1)
-        # src: vs(5,64) vr(5,64) eq(5,64)
-        # rec: vs(batchsize*100,64) vr(100,64) eq(5,64)
+        batch_size = vs_decoded.shape[0]
+        rec_fusion = vr_decoded
+        src_fusion = vs_decoded
+        # print(f"query shape :{query.shape}")
+        # print(f"items_emb shape :{items_emb.shape}")
+        # print(f"query embedding shape :{query_emb.shape}")
+        # print(f"rec_fusion shape :{rec_fusion.shape}")
+        # print(f"src_fusion shape :{src_fusion.shape}")
         try:
             query = inputs['query']
             query_emb = self.session_embedding.get_query_emb(query)
-            print(query_emb.shape)
             # 调整 query_emb 的形状
             # 1. 如果 query_emb 是二维的 (batch_size, d)，需要扩展以匹配 items_emb 的批量大小
             if query_emb.dim() == 2:
-                query_emb = query_emb.unsqueeze(1).expand(-1, items_emb.size(1), -1)
+                query_emb = query_emb.unsqueeze(1).expand(-1, rec_fusion.size(1), -1)
 
             # 2. 如果 query_emb 是三维的 (batch_size, num_items, d)，则可能已经匹配
             elif query_emb.dim() == 3 and query_emb.size(1) != items_emb.size(1):
-                query_emb = query_emb.view(batch_size, items_emb.size(1), -1)  # 调整为 (batch_size, num_items, d)
+                query_emb = query_emb.view(batch_size, rec_fusion.size(1), -1)  # 调整为 (batch_size, num_items, d)
         except:
-            shape = (batch_size, 5, 64)
+            shape = (batch_size, rec_fusion.size(1), rec_fusion.size(2))
             query_emb = self.generate_random_tensor(shape, min_val=-0.2, max_val=0.3, target_mean=-0.0004)
         return rec_fusion, src_fusion, query_emb
 
